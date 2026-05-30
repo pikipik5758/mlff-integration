@@ -34,17 +34,26 @@ integrasi-baru/
 └── .gitignore
 ```
 
-## Requirements
+## Prerequisites
 
-* Ubuntu 24.04
-* ROS 2 Jazzy
-* Python 3.12
+- Ubuntu 24.04
+- ROS 2 Jazzy
+- Python 3.12
+
+Install ROS 2 Jazzy before running this project.
 
 Install Python dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
+
+## Notes
+
+This project uses PaddlePaddle GPU.
+
+Please install the appropriate CUDA version and PaddlePaddle build for your GPU before running the system.
+
 
 ## Running
 
