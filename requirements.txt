@@ -1,0 +1,6 @@
+ultralytics==8.4.52
+opencv-python==4.13.0.92
+paddleocr==3.5.0
+paddlepaddle-gpu==3.3.0
+numpy==2.3.5
+pyserial==3.5
