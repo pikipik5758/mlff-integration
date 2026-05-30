@@ -1,0 +1,12 @@
+*.pt
+*.mp4
+*.zip
+
+hasil/
+logs/
+backup-file/
+
+__pycache__/
+*.pyc
+
+venv/
