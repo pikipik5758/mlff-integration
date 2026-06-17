@@ -1,11 +1,11 @@
-
-#VERSI EPC DIKIRIM TERPISAH KE DB
+# VERSI TAMBAH TIMESTAMP & DELAY
 #!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
 import serial
 import time
+from datetime import datetime
 
 SERIAL_PORT = '/dev/ttyACM0'
 BAUD_RATE   = 115200
@@ -15,11 +15,13 @@ class SensorNode(Node):
         super().__init__('rfid_sensor')
         self.pub = self.create_publisher(String, '/rfid_data', 10)
 
-        # ↓ TAMBAH: subscribe pesan yang akan dikirim ke ESP32-S3
         self.create_subscription(String, '/kirim_ke_esp', self.callback_kirim_esp, 10)
 
         self._epc_temp  = None
         self._rssi_temp = None
+
+        # ↓ TAMBAH: untuk hitung delay antar pesan
+        self._waktu_terakhir = None
 
         try:
             self.ser = serial.Serial()
@@ -64,17 +66,33 @@ class SensorNode(Node):
                 elif baris.startswith("==="):
                     if self._epc_temp:
                         rssi = self._rssi_temp if self._rssi_temp else "N/A"
-                        self.get_logger().info(f"[PUBLISH] EPC: {self._epc_temp} | RSSI: {rssi}")
+
+                        # ↓ TAMBAH: hitung timestamp & delay
+                        waktu_sekarang = time.time()
+                        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]  # HH:MM:SS.mmm
+
+                        if self._waktu_terakhir is not None:
+                            delay = round(waktu_sekarang - self._waktu_terakhir, 3)
+                        else:
+                            delay = 0.0
+
+                        self._waktu_terakhir = waktu_sekarang
+
+                        self.get_logger().info(
+                            f"[PUBLISH] EPC: {self._epc_temp} | RSSI: {rssi} | "
+                            f"Timestamp: {timestamp} | Delay: {delay}s"
+                        )
+
                         msg      = String()
-                        msg.data = f"{self._epc_temp},{rssi}"
+                        msg.data = f"{self._epc_temp},{rssi},{timestamp},{delay}"
                         self.pub.publish(msg)
+
                         self._epc_temp  = None
                         self._rssi_temp = None
 
         except Exception as e:
             self.get_logger().warn(f"Error baca serial: {e}")
 
-    # ↓ TAMBAH: terima hasil dari subscriber.py, tulis ke serial ESP32-S3
     def callback_kirim_esp(self, msg):
         if self.ser is None or not self.ser.is_open:
             return
