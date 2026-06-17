@@ -49,9 +49,11 @@ def main():
             with open(CSV_FILENAME, mode='a', newline='') as file:
                 writer = csv.writer(file)
                 if not file_exists:
+                    # Header
                     writer.writerow([
                         "Waktu_Terima", "EPC_RFID", "RSSI_1", "RSSI_2", "Plat_OCR",
-                        "Plat_DB", "Golongan_DB", "Status", "Timestamp_Verifikasi", "Delay_RFID"
+                        "Plat_DB", "Golongan_DB", "Status", "Timestamp_Verifikasi",
+                        "Delay_Antar_Tag", "Delay_E2E"  # ← 2 kolom baru
                     ])
             print(f"[INFO] Fitur rekam otomatis aktif. Data akan disimpan di: {CSV_FILENAME}")
         except Exception as e:
@@ -83,12 +85,21 @@ def main():
                     plat_ocr    = parts[4]
                     campuran    = parts[5]
 
-                    sub_parts = campuran.split(',')
-                    plat_db_kode  = sub_parts[0] if len(sub_parts) >= 1 else "N/A"
-                    golongan_db   = sub_parts[1] if len(sub_parts) >= 2 else "N/A"
-                    status_kode   = sub_parts[2] if len(sub_parts) >= 3 else "UNK"
-                    timestamp_jam = sub_parts[3] if len(sub_parts) >= 4 else "N/A"
-                    delay         = sub_parts[4] if len(sub_parts) >= 5 else "N/A"
+                    sub_parts       = campuran.split(',')
+                    plat_db_kode    = sub_parts[0] if len(sub_parts) >= 1 else "N/A"
+                    golongan_db     = sub_parts[1] if len(sub_parts) >= 2 else "N/A"
+                    status_kode     = sub_parts[2] if len(sub_parts) >= 3 else "UNK"
+                    timestamp_jam   = sub_parts[3] if len(sub_parts) >= 4 else "N/A"
+                    t1_str          = sub_parts[4] if len(sub_parts) >= 5 else "N/A"
+                    delay_antar_tag = sub_parts[5] if len(sub_parts) >= 6 else "N/A"
+
+                    # Hitung delay end-to-end
+                    try:
+                        t2        = time.time()
+                        delay_e2e = round(t2 - float(t1_str), 3)
+                    except:
+                        delay_e2e = "N/A"
+
 
                     status_map_balik = {
                         "VAL":   "VALID",
@@ -114,7 +125,8 @@ def main():
                     print(f" GOLONGAN DB       : {golongan_db}")
                     print(f" STATUS            : {status}")
                     print(f" TIMESTAMP VERIF   : {timestamp_verif}")
-                    print(f" DELAY (RFID)      : {delay}s")
+                    print(f" DELAY (ANTAR TAG) : {delay_antar_tag}s")
+                    print(f" DELAY (E2E)       : {delay_e2e}s")
                     print("=" * 50)
 
                     # A. Simpan ke DB (jika aktif)  ← TETAP DI SINI, di dalam while/if
@@ -135,9 +147,11 @@ def main():
                         try:
                             with open(CSV_FILENAME, mode='a', newline='') as file:
                                 writer = csv.writer(file)
+                                # Data
                                 writer.writerow([
                                     waktu_terima, epc_rfid, rssi_jarak1, rssi_jarak2, plat_ocr,
-                                    plat_db, golongan_db, status, timestamp_verif, delay
+                                    plat_db, golongan_db, status, timestamp_verif,
+                                    delay_antar_tag, delay_e2e  # ← 2 kolom baru
                                 ])
                             print(f" [+] Tersimpan ke {CSV_FILENAME}!")
                         except Exception as e:

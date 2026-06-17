@@ -94,22 +94,18 @@ class SubscriberNode(Node):
         self.verifikasi(matched_rfid, matched_kamera)
     
 
-    def kirim_ke_esp(self, epc, rssi, plat_ocr, plat_db, golongan_kamera, golongan_db, status, timestamp, delay="N/A"):
+    def kirim_ke_esp(self, epc, rssi, plat_ocr, plat_db, golongan_kamera, golongan_db, status, timestamp, t1="N/A", delay_antar_tag="N/A"):
         rssi_angka = str(rssi).replace(" dBm", "").strip()
 
         status_map = {
-            "VALID": "VAL",
-            "INVALID": "INV",
-            "UNKNOWN": "UNK",
-            "NO_CAMERA": "NOCAM"
+            "VALID": "VAL", "INVALID": "INV",
+            "UNKNOWN": "UNK", "NO_CAMERA": "NOCAM"
         }
-        status_kode = status_map.get(status, "UNK")
-
-        plat_db_kode = "-" if plat_db == "TIDAK DITEMUKAN" else plat_db
+        status_kode       = status_map.get(status, "UNK")
+        plat_db_kode      = "-" if plat_db == "TIDAK DITEMUKAN" else plat_db
         timestamp_singkat = timestamp.split(" ")[0]
 
-        # ↓ TAMBAH delay ke campuran
-        campuran  = f"{plat_db_kode},{golongan_db},{status_kode},{timestamp_singkat},{delay}"
+        campuran  = f"{plat_db_kode},{golongan_db},{status_kode},{timestamp_singkat},{t1},{delay_antar_tag}"
         pesan_esp = f"{epc}|{rssi_angka}|{plat_ocr}|{campuran}"
 
         msg = String()
@@ -117,13 +113,38 @@ class SubscriberNode(Node):
         self.pub_kirim.publish(msg)
         self.get_logger().info(f"[KIRIM ESP] {pesan_esp}")
 
+    # def kirim_ke_esp(self, epc, rssi, plat_ocr, plat_db, golongan_kamera, golongan_db, status, timestamp, delay="N/A"):
+    #     rssi_angka = str(rssi).replace(" dBm", "").strip()
+
+    #     status_map = {
+    #         "VALID": "VAL",
+    #         "INVALID": "INV",
+    #         "UNKNOWN": "UNK",
+    #         "NO_CAMERA": "NOCAM"
+    #     }
+    #     status_kode = status_map.get(status, "UNK")
+
+    #     plat_db_kode = "-" if plat_db == "TIDAK DITEMUKAN" else plat_db
+    #     timestamp_singkat = timestamp.split(" ")[0]
+
+    #     # ↓ TAMBAH delay ke campuran
+    #     campuran  = f"{plat_db_kode},{golongan_db},{status_kode},{timestamp_singkat},{delay}"
+    #     pesan_esp = f"{epc}|{rssi_angka}|{plat_ocr}|{campuran}"
+
+    #     msg = String()
+    #     msg.data = pesan_esp
+    #     self.pub_kirim.publish(msg)
+    #     self.get_logger().info(f"[KIRIM ESP] {pesan_esp}")
+
     def verifikasi(self, rfid_data, kamera_data):
         epc             = rfid_data["epc"]
         rssi            = rfid_data.get("rssi", "N/A")
-        delay           = rfid_data.get("delay", "N/A")   # ← TAMBAH INI
+        #delay           = rfid_data.get("delay", "N/A")   # ← TAMBAH INI
         plat_ocr        = kamera_data["plat"]
         golongan_kamera = kamera_data["golongan"]
         timestamp       = datetime.now().strftime("%H:%M:%S %d/%m/%Y")
+        t1              = rfid_data.get("t1", "N/A")
+        delay_antar_tag = rfid_data.get("delay_antar_tag", "N/A")
 
         db_data = dummy_db.get(epc)
         if db_data:
@@ -150,7 +171,8 @@ class SubscriberNode(Node):
         self.get_logger().info(f"[VERIFIKASI] Waktu       : {timestamp}")
         self.get_logger().info(sep)
 
-        self.kirim_ke_esp(epc, rssi, plat_ocr, plat_db, golongan_kamera, golongan_db, status, timestamp, delay)
+        self.kirim_ke_esp(epc, rssi, plat_ocr, plat_db, golongan_kamera, golongan_db, status, timestamp, t1, delay_antar_tag)
+        #self.kirim_ke_esp(epc, rssi, plat_ocr, plat_db, golongan_kamera, golongan_db, status, timestamp, delay)
 
     def cek_timeout_kamera(self):
         waktu_sekarang = time.time()
@@ -181,9 +203,9 @@ class SubscriberNode(Node):
             status = "NO_CAMERA"  # status khusus: RFID terbaca tanpa verifikasi kamera
 
             self.kirim_ke_esp(
-                epc, rssi,
-                "N/A", plat_db, "-", golongan_db, status, timestamp,
-                r.get("delay", "N/A")   # ← TAMBAH INI
+                epc, rssi, "N/A", plat_db, "-", golongan_db, status, timestamp,
+                r.get("t1", "N/A"),
+                r.get("delay_antar_tag", "N/A")
             )
 
             # self.kirim_ke_esp(
@@ -195,21 +217,30 @@ class SubscriberNode(Node):
     def callback_rfid(self, msg):
         raw   = msg.data.strip()
         parts = raw.split(",")
-        epc            = parts[0]
-        rssi           = parts[1] if len(parts) >= 2 else "N/A"
-        timestamp_rfid = parts[2] if len(parts) >= 3 else "N/A"
-        delay          = parts[3] if len(parts) >= 4 else "N/A"
+        epc             = parts[0]
+        rssi            = parts[1] if len(parts) >= 2 else "N/A"
+        t1              = parts[2] if len(parts) >= 3 else "N/A"
+        delay_antar_tag = parts[3] if len(parts) >= 4 else "N/A"
+        # raw   = msg.data.strip()
+        # parts = raw.split(",")
+        # epc            = parts[0]
+        # rssi           = parts[1] if len(parts) >= 2 else "N/A"
+        # timestamp_rfid = parts[2] if len(parts) >= 3 else "N/A"
+        # delay          = parts[3] if len(parts) >= 4 else "N/A"
 
         if not self.cek_limit(epc):
             return
 
-        self.tampilkan_rfid(epc, rssi, timestamp_rfid, delay)
+        self.tampilkan_rfid(epc, rssi)
+        #self.tampilkan_rfid(epc, rssi, timestamp_rfid, delay)
 
         self.rfid_buffer.append({
             "epc":            epc,
             "rssi":           rssi,
-            "timestamp_rfid": timestamp_rfid,
-            "delay":          delay,           # ← pastikan ada ini
+            #"timestamp_rfid": timestamp_rfid,
+            "t1":              t1,
+            "delay_antar_tag": delay_antar_tag,
+            # "delay":          delay,           # ← pastikan ada ini
             "timestamp":      time.time()
         })
 

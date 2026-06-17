@@ -69,22 +69,22 @@ class SensorNode(Node):
 
                         # ↓ TAMBAH: hitung timestamp & delay
                         waktu_sekarang = time.time()
-                        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]  # HH:MM:SS.mmm
+                        t1 = round(waktu_sekarang, 3)  # untuk hitung delay e2e di penerima
 
                         if self._waktu_terakhir is not None:
-                            delay = round(waktu_sekarang - self._waktu_terakhir, 3)
+                            delay_antar_tag = round(waktu_sekarang - self._waktu_terakhir, 3)
                         else:
-                            delay = 0.0
+                            delay_antar_tag = 0.0
 
                         self._waktu_terakhir = waktu_sekarang
 
                         self.get_logger().info(
                             f"[PUBLISH] EPC: {self._epc_temp} | RSSI: {rssi} | "
-                            f"Timestamp: {timestamp} | Delay: {delay}s"
+                            f"T1: {t1} | Delay antar tag: {delay_antar_tag}s"
                         )
 
                         msg      = String()
-                        msg.data = f"{self._epc_temp},{rssi},{timestamp},{delay}"
+                        msg.data = f"{self._epc_temp},{rssi},{t1},{delay_antar_tag}"
                         self.pub.publish(msg)
 
                         self._epc_temp  = None
