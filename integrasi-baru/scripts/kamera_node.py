@@ -515,9 +515,10 @@ class KameraNode(Node):
 
         for i, cls in enumerate(boxes.cls.int().cpu().numpy()):
             box = boxes.xyxy[i].cpu().numpy()
+            conf = float(boxes.conf[i])  # ← ambil confidence score
             if cls in VEHICLE_CLASSES:
                 tid = int(boxes.id[i]) if boxes.id is not None else -1
-                kendaraan_list.append((tid, int(cls), box))
+                kendaraan_list.append((tid, int(cls), box, conf))  # ← tambah conf
                 with self.lock:
                     self.golongan_memory[tid] = GOLONGAN_MAP.get(int(cls), 2)
             elif cls == PLATE_CLASS:
@@ -526,7 +527,7 @@ class KameraNode(Node):
         # Kirim crop plat ke OCR thread (non-blocking)
         for pbox in plat_list:
             best_iou, best_tid = 0, None
-            for tid, cls, vbox in kendaraan_list:
+            for tid, cls, vbox, conf in kendaraan_list: #tambahkan conf untuk prioritas jika ada multiple box kendaraan
                 score = iou(pbox, vbox)
                 if score > best_iou:
                     best_iou, best_tid = score, tid
@@ -547,7 +548,7 @@ class KameraNode(Node):
                         pass  # skip kalau queue penuh, tidak masalah
 
         # Gambar bounding box pakai hasil OCR terakhir (dari memory)
-        for tid, cls, box in kendaraan_list:
+        for tid, cls, box, conf in kendaraan_list:
             with self.lock:
                 plat = self.plat_memory.get(tid, "")
                 golongan = self.golongan_memory.get(tid, 2)
@@ -555,7 +556,7 @@ class KameraNode(Node):
 
             color = (0, 200, 50)
             nama = self.model.names[cls]
-            label = f"{nama} ID:{tid}"
+            label = f"{nama} ID:{tid} {conf:.2f}" #tambahkan conf ke label untuk debugging
             if plat:
                 label += f" | {plat}"
 
