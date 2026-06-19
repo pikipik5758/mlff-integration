@@ -7,10 +7,10 @@ import time
 from datetime import datetime
 
 # === KONFIGURASI ===
-TIME_TOLERANCE = 2.0
+TIME_TOLERANCE = 0.5  # toleransi waktu (detik) untuk mencocokkan data RFID dan kamera
 MAX_DETEKSI    = 3
 COOLDOWN_LOCK  = 10
-TIMEOUT_KAMERA = 2.0
+TIMEOUT_KAMERA = 1.0   # waktu maksimum menunggu data kamera sebelum dianggap timeout
 
 # === DUMMY DATABASE ===
 dummy_db = {
@@ -43,7 +43,7 @@ class SubscriberNode(Node):
         self.create_subscription(String, '/rfid_data',   self.callback_rfid,   10)
         self.create_subscription(String, '/kamera_data', self.callback_kamera, 10)
 
-        self.create_timer(1.0, self.cek_timeout_kamera)
+        self.create_timer(0.2, self.cek_timeout_kamera) #waktu cek timeout kamera setiap 0.2 detik
 
         self.get_logger().info("Subscriber node siap — menunggu data RFID & Kamera...")
 

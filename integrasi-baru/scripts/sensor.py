@@ -39,7 +39,7 @@ class SensorNode(Node):
             self.ser = None
             return
 
-        self.timer = self.create_timer(0.05, self.baca_serial)
+        self.timer = self.create_timer(0.01, self.baca_serial) # mengurangi refresh time 0.05 menjadi 0.01 untuk membaca data lebih cepat
 
     def baca_serial(self):
         if self.ser is None or not self.ser.is_open:
