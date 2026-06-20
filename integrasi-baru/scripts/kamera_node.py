@@ -29,7 +29,8 @@ GOLONGAN_MAP = {
     3: 4,
     4: 5,
 }
-
+DEBUG_PREPROCESSING = False
+DEBUG_DIR = "/home/piki/PA/integrasi-baru/scripts/debug_preprocessing"
 
 # ============================================================
 # PREPROCESSING UTILITIES
@@ -99,7 +100,7 @@ def color_segment_plat(crop_bgr):
     return mask_teks
 
 
-def preprocess_plat(crop_bgr):
+def preprocess_plat(crop_bgr, debug_save_dir=None, debug_prefix=""):
     """
     Pipeline preprocessing lengkap untuk plat Indonesia.
     Mengembalikan list kandidat gambar (BGR) untuk dikirim ke OCR.
@@ -137,6 +138,16 @@ def preprocess_plat(crop_bgr):
 
     # Kandidat 3: Gabungkan mask segmentasi warna dengan grayscale
     gray_masked = cv2.bitwise_and(gray, gray, mask=mask_teks)
+
+    if debug_save_dir:
+        os.makedirs(debug_save_dir, exist_ok=True)
+        tahapan = {
+            "01_resized": crop, "02_mask_warna": mask_teks,
+            "03_gray_final": gray, "04_thresh_adaptive": thresh_adapt,
+            "05_thresh_otsu": thresh_otsu, "06_gray_masked": gray_masked,
+        }
+        for nama, img in tahapan.items():
+            cv2.imwrite(f"{debug_save_dir}/{debug_prefix}_{nama}.jpg", img)
 
     # Konversi semua kandidat ke BGR agar bisa masuk PaddleOCR
     kandidat = [
@@ -350,11 +361,11 @@ def format_plat_indonesia(teks_raw):
     return f"{prefix} {digits} {suffix}"
 
 
-def baca_plat_crop(crop_bgr, ocr):
+def baca_plat_crop(crop_bgr, ocr, debug_save_dir=None, debug_prefix=""):
     """Fungsi OCR dari crop langsung — dipanggil oleh OCR worker thread."""
     if crop_bgr is None or crop_bgr.size == 0:
         return ""
-    kandidat_list = preprocess_plat(crop_bgr)
+    kandidat_list = preprocess_plat(crop_bgr, debug_save_dir, debug_prefix)
     for kandidat in kandidat_list:
         teks_list = ocr_kandidat(ocr, kandidat)
         if teks_list:
@@ -447,7 +458,9 @@ class KameraNode(Node):
             except queue.Empty:
                 continue
             try:
-                teks = baca_plat_crop(crop_bgr, self.ocr)
+                debug_dir = DEBUG_DIR if DEBUG_PREPROCESSING else None
+                prefix = f"id{best_tid}_{datetime.now().strftime('%H%M%S_%f')}"
+                teks = baca_plat_crop(crop_bgr, self.ocr, debug_dir, prefix)
                 if teks and best_tid is not None:
                     self.ocr_result_queue.put((best_tid, teks))
             except Exception as e:
@@ -571,6 +584,7 @@ class KameraNode(Node):
                     "track_id": tid,
                     "plat": plat,
                     "golongan": golongan,
+                    "conf": round(conf, 2),
                     "timestamp": datetime.now().strftime("%H:%M:%S %d/%m/%Y"),
                     "fps": round(self.fps, 1)
                 }
