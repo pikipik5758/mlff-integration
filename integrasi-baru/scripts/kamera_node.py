@@ -57,6 +57,11 @@ def deskew(gray):
                               borderMode=cv2.BORDER_REPLICATE)
     return rotated
 
+def sharpen(gray):
+    """Tajamkan tepi karakter dengan unsharp masking."""
+    blur = cv2.GaussianBlur(gray, (0, 0), sigmaX=3)
+    sharpened = cv2.addWeighted(gray, 1.5, blur, -0.5, 0)
+    return sharpened
 
 def denoise(gray):
     """Hilangkan noise dengan fastNlMeansDenoising."""
@@ -129,22 +134,26 @@ def preprocess_plat(crop_bgr, debug_save_dir=None, debug_prefix=""):
     gray = cv2.morphologyEx(gray, cv2.MORPH_CLOSE, kernel)
 
     # 8. Buat beberapa kandidat threshold
-    # Kandidat 1: Adaptive threshold (paling andal untuk cahaya tidak merata)
+    # Kandidat 1: Adaptive threshold (paling andal, terbukti dari evaluasi visual)
     thresh_adapt = cv2.adaptiveThreshold(
         gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 15, 8)
 
-    # Kandidat 2: Otsu threshold
-    _, thresh_otsu = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    # Kandidat 2: Sharpen dulu, baru adaptive threshold (perkuat tepi karakter)
+    gray_sharp = sharpen(gray)
+    thresh_adapt_sharp = cv2.adaptiveThreshold(
+        gray_sharp, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 15, 8)
 
-    # Kandidat 3: Gabungkan mask segmentasi warna dengan grayscale
-    gray_masked = cv2.bitwise_and(gray, gray, mask=mask_teks)
+    # Kandidat 3: Adaptive threshold dengan block size lebih besar (tekstur lebih halus)
+    thresh_adapt_texture = cv2.adaptiveThreshold(
+        gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 25, 10)
 
     if debug_save_dir:
         os.makedirs(debug_save_dir, exist_ok=True)
         tahapan = {
             "01_resized": crop, "02_mask_warna": mask_teks,
             "03_gray_final": gray, "04_thresh_adaptive": thresh_adapt,
-            "05_thresh_otsu": thresh_otsu, "06_gray_masked": gray_masked,
+            "05_thresh_adaptive_sharpen": thresh_adapt_sharp,
+            "06_thresh_adaptive_texture": thresh_adapt_texture,
         }
         for nama, img in tahapan.items():
             cv2.imwrite(f"{debug_save_dir}/{debug_prefix}_{nama}.jpg", img)
@@ -152,8 +161,8 @@ def preprocess_plat(crop_bgr, debug_save_dir=None, debug_prefix=""):
     # Konversi semua kandidat ke BGR agar bisa masuk PaddleOCR
     kandidat = [
         cv2.cvtColor(thresh_adapt, cv2.COLOR_GRAY2BGR),
-        cv2.cvtColor(thresh_otsu, cv2.COLOR_GRAY2BGR),
-        cv2.cvtColor(gray_masked, cv2.COLOR_GRAY2BGR),
+        cv2.cvtColor(thresh_adapt_sharp, cv2.COLOR_GRAY2BGR),
+        cv2.cvtColor(thresh_adapt_texture, cv2.COLOR_GRAY2BGR),
         cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR),       # fallback plain gray
     ]
     return kandidat
