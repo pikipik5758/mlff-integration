@@ -51,9 +51,10 @@ def main():
                 if not file_exists:
                     # Header
                     writer.writerow([
-                        "Waktu_Terima", "EPC_RFID", "RSSI_1", "RSSI_2", "Plat_OCR",
-                        "Plat_DB", "Golongan_DB", "Status", "Timestamp_Verifikasi",
-                        "Delay_Antar_Tag", "Delay_E2E"  # ← 2 kolom baru
+                        "Waktu_Terima", "Tipe", "EPC_RFID",
+                        "RSSI_1", "RSSI_2", "Plat_OCR",
+                        "Gol_Kamera", "Timestamp_Verif",
+                        "Delay_Antar_Tag", "Delay_E2E"
                     ])
             print(f"[INFO] Fitur rekam otomatis aktif. Data akan disimpan di: {CSV_FILENAME}")
         except Exception as e:
@@ -69,96 +70,72 @@ def main():
             if ser.in_waiting > 0:
                 raw_line = ser.readline().decode('utf-8', errors='ignore').strip()
 
-                if not raw_line:
-                    continue
-
-                if raw_line.startswith(">>> [ANALISA]"):
-                    print(f"\033[93m{raw_line}\033[0m")
+                if not raw_line or raw_line.startswith(">> [INFO]"):
+                    if raw_line:
+                        print(f"\033[93m{raw_line}\033[0m")
                     continue
 
                 parts = raw_line.split('|')
+                tipe  = parts[0]
 
-                if parts[0] == "DATA" and len(parts) >= 6:
-                    epc_rfid    = parts[1]
-                    rssi_jarak1 = parts[2]
-                    rssi_jarak2 = parts[3]
-                    plat_ocr    = parts[4]
-                    campuran    = parts[5]
+                waktu_terima     = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                tanggal_hari_ini = datetime.now().strftime('%d/%m/%Y')
 
-                    sub_parts       = campuran.split(',')
-                    plat_db_kode    = sub_parts[0] if len(sub_parts) >= 1 else "N/A"
-                    golongan_db     = sub_parts[1] if len(sub_parts) >= 2 else "N/A"
-                    status_kode     = sub_parts[2] if len(sub_parts) >= 3 else "UNK"
-                    timestamp_jam   = sub_parts[3] if len(sub_parts) >= 4 else "N/A"
-                    t1_str          = sub_parts[4] if len(sub_parts) >= 5 else "N/A"
-                    delay_antar_tag = sub_parts[5] if len(sub_parts) >= 6 else "N/A"
+                if tipe == "DATA" and len(parts) >= 6:
+                    # Format lama dari firmware ESP — pecah campuran
+                    epc_rfid        = parts[1]
+                    rssi_jarak1     = parts[2]
+                    rssi_jarak2     = parts[3]
+                    plat_ocr        = parts[4]
+                    campuran        = parts[5]
 
-                    # Hitung delay end-to-end
+                    sub             = campuran.split(',')
+                    golongan_kamera = sub[0] if len(sub) >= 1 else "N/A"
+                    timestamp_jam   = sub[1] if len(sub) >= 2 else "N/A"
+                    t1_str          = sub[2] if len(sub) >= 3 else "N/A"
+                    delay_antar_tag = sub[3] if len(sub) >= 4 else "N/A"
+
                     try:
-                        t2        = time.time()
-                        delay_e2e = round(t2 - float(t1_str), 3)
+                        delay_e2e = round(time.time() - float(t1_str), 3)
                     except:
                         delay_e2e = "N/A"
 
+                    timestamp_verif = f"{timestamp_jam} {tanggal_hari_ini}"
 
-                    status_map_balik = {
-                        "VAL":   "VALID",
-                        "INV":   "INVALID",
-                        "UNK":   "UNKNOWN",
-                        "NOCAM": "NO_CAMERA"
-                    }
-                    plat_db = "TIDAK DITEMUKAN" if plat_db_kode == "-" else plat_db_kode
-                    status  = status_map_balik.get(status_kode, "UNKNOWN")
+                    if tipe_data == "RFID":
+                        print("\n[JALUR UTAMA - EPC]")
+                        # query DB by EPC → payment
 
-                    waktu_terima      = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    tanggal_hari_ini  = datetime.now().strftime('%d/%m/%Y')
-                    timestamp_verif   = f"{timestamp_jam} {tanggal_hari_ini}"
+                    elif tipe_data == "CAM":
+                        print("\n[JALUR CADANGAN - KAMERA]")
+                        # query DB by plat → payment
 
-                    # Cetak ke Terminal
-                    print("\n" + "=" * 50)
-                    print(f" WAKTU TERIMA      : {waktu_terima}")
-                    print(f" EPC RFID          : {epc_rfid}")
-                    print(f" RSSI Jarak 1      : {rssi_jarak1} dBm")
-                    print(f" RSSI Jarak 2      : {rssi_jarak2} dBm")
-                    print(f" PLAT OCR          : {plat_ocr}")
-                    print(f" PLAT DB           : {plat_db}")
-                    print(f" GOLONGAN DB       : {golongan_db}")
-                    print(f" STATUS            : {status}")
-                    print(f" TIMESTAMP VERIF   : {timestamp_verif}")
-                    print(f" DELAY (ANTAR TAG) : {delay_antar_tag}s")
-                    print(f" DELAY (E2E)       : {delay_e2e}s")
+                    elif tipe_data == "FULL":
+                        print("\n[AUDIT - GABUNGAN]")
+                        # validasi silang + log
+
+                    print(f" TIPE           : {tipe_data}")
+                    print(f" WAKTU TERIMA   : {waktu_terima}")
+                    print(f" EPC RFID       : {epc_rfid}")
+                    print(f" RSSI Jarak 1   : {rssi_jarak1} dBm")
+                    print(f" RSSI Jarak 2   : {rssi_jarak2} dBm")
+                    print(f" PLAT OCR       : {plat_ocr}")
+                    print(f" GOL KAMERA     : {golongan_kamera}")
+                    print(f" DELAY ANTAR TAG: {delay_antar_tag}s")
+                    print(f" DELAY E2E      : {delay_e2e}s")
+                    print(f" TIMESTAMP      : {timestamp_verif}")
                     print("=" * 50)
 
-                    # A. Simpan ke DB (jika aktif)  ← TETAP DI SINI, di dalam while/if
-                    if USE_DATABASE:
-                        sql = """INSERT INTO log_transaksi
-                                 (waktu, epc, rssi_1, rssi_2, plat_ocr, plat_db, golongan_db, status, timestamp_verifikasi, delay)
-                                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
-                        val = (waktu_terima, epc_rfid, rssi_jarak1, rssi_jarak2, plat_ocr, plat_db, golongan_db, status, timestamp_verif, delay)
-                        try:
-                            cursor.execute(sql, val)
-                            db.commit()
-                            print(" [+] Tersimpan ke Database XAMPP!")
-                        except Exception as e:
-                            print(f" [-] Gagal menyimpan ke DB: {e}")
-
-                    # B. Simpan ke CSV (jika aktif)
                     if SAVE_TO_CSV:
-                        try:
-                            with open(CSV_FILENAME, mode='a', newline='') as file:
-                                writer = csv.writer(file)
-                                # Data
-                                writer.writerow([
-                                    waktu_terima, epc_rfid, rssi_jarak1, rssi_jarak2, plat_ocr,
-                                    plat_db, golongan_db, status, timestamp_verif,
-                                    delay_antar_tag, delay_e2e  # ← 2 kolom baru
-                                ])
-                            print(f" [+] Tersimpan ke {CSV_FILENAME}!")
-                        except Exception as e:
-                            print(f" [-] Gagal menulis ke CSV: {e}")
-
-                elif raw_line.startswith(">> [INFO]"):
-                    print(f"\033[93m{raw_line}\033[0m")
+                        with open(CSV_FILENAME, mode='a', newline='') as file:
+                            writer = csv.writer(file)
+                            writer.writerow([
+                                waktu_terima, tipe_data, epc_rfid,
+                                rssi_jarak1, rssi_jarak2, plat_ocr,
+                                golongan_kamera, timestamp_verif,
+                                delay_antar_tag, delay_e2e
+                            ])
+                        print(f" [+] Tersimpan ke {CSV_FILENAME}!")
 
                 else:
                     print(f"[RAW] {raw_line}")

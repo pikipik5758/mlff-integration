@@ -14,9 +14,10 @@ TIMEOUT_KAMERA = 1.0   # waktu maksimum menunggu data kamera sebelum dianggap ti
 
 # === DUMMY DATABASE ===
 dummy_db = {
-    "E28069150000700B41525446": {"plat": "L 1829 ABO", "golongan": 1},
-    "E28069150000600B41554045": {"plat": "W 1940 VI",  "golongan": 4},
-    "E28069150000600B41524446": {"plat": "B 448 ALI",  "golongan": 1},
+    #"E28069150000700B41525446": {"plat": "L 1829 ABO", "golongan": 1},
+    #"E28069150000600B41554045": {"plat": "W 1940 VI",  "golongan": 4},
+    "E28069150000600B41524446": {"plat": "L 1829 ABO",  "golongan": 1},
+    # "E28011700000021B041818C4": {"plat": "L 9838 UP",  "golongan": 1},
 }
 
 
@@ -44,9 +45,28 @@ class SubscriberNode(Node):
         self.create_subscription(String, '/kamera_data', self.callback_kamera, 10)
 
         self.create_timer(0.2, self.cek_timeout_kamera) #waktu cek timeout kamera setiap 0.2 detik
+        self.create_timer(0.1, self.cek_timeout_rfid)  # ← TAMBAH: waktu cek timeout RFID setiap 0.1 detik
 
         self.get_logger().info("Subscriber node siap — menunggu data RFID & Kamera...")
 
+    def cek_timeout_rfid(self):
+        """Kamera di buffer tapi tidak ada RFID match → kirim sebagai cadangan."""
+        waktu_sekarang = time.time()
+        expired = [
+            k for k in self.kamera_buffer
+            if waktu_sekarang - k["timestamp_ros"] > TIMEOUT_KAMERA
+        ]
+        for k in expired:
+            self.kamera_buffer.remove(k)
+            plat_ocr        = k["plat"]
+            golongan_kamera = k["golongan"]
+            timestamp       = datetime.now().strftime("%H:%M:%S")
+
+            self.get_logger().warn(f"[CAM ONLY] Plat: {plat_ocr} | Gol: {golongan_kamera} — tidak ada RFID")
+
+            # JALUR 2: Kirim kamera saja sebagai cadangan
+            self.kirim_ke_esp(f"CAM|{plat_ocr}|{golongan_kamera}|{timestamp}")
+            
     def cek_limit(self, epc):
         waktu_sekarang = time.time()
         if epc not in self.status_tag:
@@ -94,24 +114,11 @@ class SubscriberNode(Node):
         self.verifikasi(matched_rfid, matched_kamera)
     
 
-    def kirim_ke_esp(self, epc, rssi, plat_ocr, plat_db, golongan_kamera, golongan_db, status, timestamp, t1="N/A", delay_antar_tag="N/A"):
-        rssi_angka = str(rssi).replace(" dBm", "").strip()
-
-        status_map = {
-            "VALID": "VAL", "INVALID": "INV",
-            "UNKNOWN": "UNK", "NO_CAMERA": "NOCAM"
-        }
-        status_kode       = status_map.get(status, "UNK")
-        plat_db_kode      = "-" if plat_db == "TIDAK DITEMUKAN" else plat_db
-        timestamp_singkat = timestamp.split(" ")[0]
-
-        campuran  = f"{plat_db_kode},{golongan_db},{status_kode},{timestamp_singkat},{t1},{delay_antar_tag}"
-        pesan_esp = f"{epc}|{rssi_angka}|{plat_ocr}|{campuran}"
-
-        msg = String()
-        msg.data = pesan_esp
+    def kirim_ke_esp(self, pesan):
+        msg      = String()
+        msg.data = pesan
         self.pub_kirim.publish(msg)
-        self.get_logger().info(f"[KIRIM ESP] {pesan_esp}")
+        self.get_logger().info(f"[KIRIM ESP] {pesan}")
 
     # def kirim_ke_esp(self, epc, rssi, plat_ocr, plat_db, golongan_kamera, golongan_db, status, timestamp, delay="N/A"):
     #     rssi_angka = str(rssi).replace(" dBm", "").strip()
@@ -139,40 +146,23 @@ class SubscriberNode(Node):
     def verifikasi(self, rfid_data, kamera_data):
         epc             = rfid_data["epc"]
         rssi            = rfid_data.get("rssi", "N/A")
-        #delay           = rfid_data.get("delay", "N/A")   # ← TAMBAH INI
-        plat_ocr        = kamera_data["plat"]
-        golongan_kamera = kamera_data["golongan"]
-        timestamp       = datetime.now().strftime("%H:%M:%S %d/%m/%Y")
         t1              = rfid_data.get("t1", "N/A")
         delay_antar_tag = rfid_data.get("delay_antar_tag", "N/A")
-
-        db_data = dummy_db.get(epc)
-        if db_data:
-            plat_db     = db_data["plat"]
-            golongan_db = db_data["golongan"]
-            sim         = similarity(plat_ocr, plat_db)
-            plat_valid  = sim >= 0.6
-            gol_valid   = golongan_kamera == golongan_db
-            status      = "VALID" if plat_valid and gol_valid else "INVALID"
-        else:
-            plat_db     = "TIDAK DITEMUKAN"
-            golongan_db = "-"
-            status      = "UNKNOWN"
+        plat_ocr        = kamera_data["plat"]
+        golongan_kamera = kamera_data["golongan"]
+        timestamp       = datetime.now().strftime("%H:%M:%S")
 
         sep = "=" * 55
         self.get_logger().info(sep)
-        self.get_logger().info(f"[VERIFIKASI] EPC         : {epc}")
-        self.get_logger().info(f"[VERIFIKASI] RSSI        : {rssi}")
-        self.get_logger().info(f"[VERIFIKASI] Plat OCR    : {plat_ocr}")
-        self.get_logger().info(f"[VERIFIKASI] Plat DB     : {plat_db}")
-        self.get_logger().info(f"[VERIFIKASI] Gol Kamera  : {golongan_kamera}")
-        self.get_logger().info(f"[VERIFIKASI] Gol DB      : {golongan_db}")
-        self.get_logger().info(f"[VERIFIKASI] Status      : {status}")
-        self.get_logger().info(f"[VERIFIKASI] Waktu       : {timestamp}")
+        self.get_logger().info(f"[FULL] EPC       : {epc}")
+        self.get_logger().info(f"[FULL] RSSI      : {rssi}")
+        self.get_logger().info(f"[FULL] Plat OCR  : {plat_ocr}")
+        self.get_logger().info(f"[FULL] Gol Kamera: {golongan_kamera}")
+        self.get_logger().info(f"[FULL] Waktu     : {timestamp}")
         self.get_logger().info(sep)
 
-        self.kirim_ke_esp(epc, rssi, plat_ocr, plat_db, golongan_kamera, golongan_db, status, timestamp, t1, delay_antar_tag)
-        #self.kirim_ke_esp(epc, rssi, plat_ocr, plat_db, golongan_kamera, golongan_db, status, timestamp, delay)
+        # JALUR 3: Kirim gabungan untuk audit
+        self.kirim_ke_esp(f"FULL|{epc}|{rssi}|{plat_ocr}|{golongan_kamera}|{t1}|{delay_antar_tag}")
 
     def cek_timeout_kamera(self):
         waktu_sekarang = time.time()
@@ -221,29 +211,21 @@ class SubscriberNode(Node):
         rssi            = parts[1] if len(parts) >= 2 else "N/A"
         t1              = parts[2] if len(parts) >= 3 else "N/A"
         delay_antar_tag = parts[3] if len(parts) >= 4 else "N/A"
-        # raw   = msg.data.strip()
-        # parts = raw.split(",")
-        # epc            = parts[0]
-        # rssi           = parts[1] if len(parts) >= 2 else "N/A"
-        # timestamp_rfid = parts[2] if len(parts) >= 3 else "N/A"
-        # delay          = parts[3] if len(parts) >= 4 else "N/A"
 
         if not self.cek_limit(epc):
             return
 
         self.tampilkan_rfid(epc, rssi)
-        #self.tampilkan_rfid(epc, rssi, timestamp_rfid, delay)
 
+        # JALUR 1: Langsung kirim EPC ke backend
+        self.kirim_ke_esp(f"RFID|{epc}|{rssi}|{t1}|{delay_antar_tag}")
+
+        # Simpan ke buffer untuk coba match kamera (audit)
         self.rfid_buffer.append({
-            "epc":            epc,
-            "rssi":           rssi,
-            #"timestamp_rfid": timestamp_rfid,
-            "t1":              t1,
-            "delay_antar_tag": delay_antar_tag,
-            # "delay":          delay,           # ← pastikan ada ini
-            "timestamp":      time.time()
+            "epc": epc, "rssi": rssi,
+            "t1": t1, "delay_antar_tag": delay_antar_tag,
+            "timestamp": time.time()
         })
-
         self.coba_cocokkan()
 
     def callback_kamera(self, msg):
@@ -256,7 +238,6 @@ class SubscriberNode(Node):
                 k for k in self.kamera_buffer
                 if waktu_sekarang - k["timestamp_ros"] <= TIME_TOLERANCE
             ]
-
             self.kamera_buffer.append(data)
             self.get_logger().info(f"[KAMERA] Plat: {data['plat']} | Gol: {data['golongan']}")
             self.coba_cocokkan()
