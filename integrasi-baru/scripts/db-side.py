@@ -81,64 +81,61 @@ def main():
                 waktu_terima     = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 tanggal_hari_ini = datetime.now().strftime('%d/%m/%Y')
 
-                if tipe == "DATA" and len(parts) >= 6:
-                    # Format lama dari firmware ESP — pecah campuran
-                    epc_rfid        = parts[1]
-                    rssi_jarak1     = parts[2]
-                    rssi_jarak2     = parts[3]
-                    plat_ocr        = parts[4]
-                    campuran        = parts[5]
+                if parts[0] == "DATA" and len(parts) >= 3:
+                    tipe      = parts[1]
+                    rssi_jarak2 = parts[-1]  # selalu di akhir
 
-                    sub             = campuran.split(',')
-                    golongan_kamera = sub[0] if len(sub) >= 1 else "N/A"
-                    timestamp_jam   = sub[1] if len(sub) >= 2 else "N/A"
-                    t1_str          = sub[2] if len(sub) >= 3 else "N/A"
-                    delay_antar_tag = sub[3] if len(sub) >= 4 else "N/A"
+                    if tipe == "RFID" and len(parts) >= 7:
+                        epc             = parts[2]
+                        rssi_jarak1     = parts[3]
+                        t1_str          = parts[4]
+                        delay_antar_tag = parts[5]
+                        plat_ocr        = "N/A"
+                        golongan_kamera = "N/A"
 
+                    elif tipe == "CAM" and len(parts) >= 6:
+                        epc             = "N/A"
+                        rssi_jarak1     = "N/A"
+                        t1_str          = "N/A"
+                        delay_antar_tag = "N/A"
+                        plat_ocr        = parts[2]
+                        golongan_kamera = parts[3]
+
+                    elif tipe == "FULL" and len(parts) >= 9:
+                        epc             = parts[2]
+                        rssi_jarak1     = parts[3]
+                        plat_ocr        = parts[4]
+                        golongan_kamera = parts[5]
+                        t1_str          = parts[6]
+                        delay_antar_tag = parts[7]
+
+                    # Hitung delay e2e
                     try:
                         delay_e2e = round(time.time() - float(t1_str), 3)
                     except:
                         delay_e2e = "N/A"
 
-                    timestamp_verif = f"{timestamp_jam} {tanggal_hari_ini}"
-
-                    if tipe_data == "RFID":
-                        print("\n[JALUR UTAMA - EPC]")
-                        # query DB by EPC → payment
-
-                    elif tipe_data == "CAM":
-                        print("\n[JALUR CADANGAN - KAMERA]")
-                        # query DB by plat → payment
-
-                    elif tipe_data == "FULL":
-                        print("\n[AUDIT - GABUNGAN]")
-                        # validasi silang + log
-
-                    print(f" TIPE           : {tipe_data}")
+                    print(f"\n{'='*50}")
+                    print(f" TIPE           : {tipe}")
                     print(f" WAKTU TERIMA   : {waktu_terima}")
-                    print(f" EPC RFID       : {epc_rfid}")
+                    print(f" EPC            : {epc}")
                     print(f" RSSI Jarak 1   : {rssi_jarak1} dBm")
                     print(f" RSSI Jarak 2   : {rssi_jarak2} dBm")
                     print(f" PLAT OCR       : {plat_ocr}")
                     print(f" GOL KAMERA     : {golongan_kamera}")
                     print(f" DELAY ANTAR TAG: {delay_antar_tag}s")
                     print(f" DELAY E2E      : {delay_e2e}s")
-                    print(f" TIMESTAMP      : {timestamp_verif}")
-                    print("=" * 50)
+                    print(f"{'='*50}")
 
                     if SAVE_TO_CSV:
                         with open(CSV_FILENAME, mode='a', newline='') as file:
                             writer = csv.writer(file)
                             writer.writerow([
-                                waktu_terima, tipe_data, epc_rfid,
+                                waktu_terima, tipe, epc,
                                 rssi_jarak1, rssi_jarak2, plat_ocr,
-                                golongan_kamera, timestamp_verif,
-                                delay_antar_tag, delay_e2e
+                                golongan_kamera, delay_antar_tag, delay_e2e
                             ])
                         print(f" [+] Tersimpan ke {CSV_FILENAME}!")
-
-                else:
-                    print(f"[RAW] {raw_line}")
 
     except serial.SerialException:
         print(f"\n[ERROR] Port {COM_PORT} tidak ditemukan atau sedang dipakai program lain.")
