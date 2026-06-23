@@ -81,11 +81,11 @@ def main():
                 waktu_terima     = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 tanggal_hari_ini = datetime.now().strftime('%d/%m/%Y')
 
-                if parts[0] == "DATA" and len(parts) >= 3:
-                    tipe      = parts[1]
-                    rssi_jarak2 = parts[-1]  # selalu di akhir
+                if len(parts) >= 6:
+                    tipe        = parts[1]          # RFID / CAM / FULL
+                    rssi_jarak2 = parts[-1]         # selalu di akhir (dari ESP WROOM)
 
-                    if tipe == "RFID" and len(parts) >= 7:
+                    if tipe == "RFID" and len(parts) >= 6:
                         epc             = parts[2]
                         rssi_jarak1     = parts[3]
                         t1_str          = parts[4]
@@ -93,7 +93,7 @@ def main():
                         plat_ocr        = "N/A"
                         golongan_kamera = "N/A"
 
-                    elif tipe == "CAM" and len(parts) >= 6:
+                    elif tipe == "CAM" and len(parts) >= 5:
                         epc             = "N/A"
                         rssi_jarak1     = "N/A"
                         t1_str          = "N/A"

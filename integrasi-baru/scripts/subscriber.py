@@ -65,7 +65,8 @@ class SubscriberNode(Node):
             self.get_logger().warn(f"[CAM ONLY] Plat: {plat_ocr} | Gol: {golongan_kamera} — tidak ada RFID")
 
             # JALUR 2: Kirim kamera saja sebagai cadangan
-            self.kirim_ke_esp(f"CAM|{plat_ocr}|{golongan_kamera}|{timestamp}")
+            # CAM
+            self.kirim_ke_esp(f"CAM|{plat_ocr}|{golongan_kamera}")
             
     def cek_limit(self, epc):
         waktu_sekarang = time.time()
@@ -162,7 +163,8 @@ class SubscriberNode(Node):
         self.get_logger().info(sep)
 
         # JALUR 3: Kirim gabungan untuk audit
-        self.kirim_ke_esp(f"FULL|{epc}|{rssi}|{plat_ocr}|{golongan_kamera}|{t1}|{delay_antar_tag}")
+        rssi_bersih = str(rssi).replace(" dBm", "").strip()
+        self.kirim_ke_esp(f"FULL|{epc}|{rssi_bersih}|{plat_ocr}|{golongan_kamera}|{t1}|{delay_antar_tag}")
 
     def cek_timeout_kamera(self):
         waktu_sekarang = time.time()
@@ -176,33 +178,35 @@ class SubscriberNode(Node):
                 f"[TIMEOUT] EPC {r['epc']} — "
                 f"kamera tidak datang dalam {TIMEOUT_KAMERA}s, dibatalkan."
             )
+            # Tidak perlu kirim apa-apa di sini
+            # RFID sudah dikirim langsung di callback_rfid
 
-            # ↓ KIRIM TETAP MESKIPUN TIDAK ADA KAMERA
-            epc       = r["epc"]
-            rssi      = r.get("rssi", "N/A")
-            timestamp = datetime.now().strftime("%H:%M:%S %d/%m/%Y")
+            # # ↓ KIRIM TETAP MESKIPUN TIDAK ADA KAMERA
+            # epc       = r["epc"]
+            # rssi      = r.get("rssi", "N/A")
+            # timestamp = datetime.now().strftime("%H:%M:%S %d/%m/%Y")
 
-            db_data = dummy_db.get(epc)
-            if db_data:
-                plat_db     = db_data["plat"]
-                golongan_db = db_data["golongan"]
-            else:
-                plat_db     = "TIDAK DITEMUKAN"
-                golongan_db = "-"
+            # db_data = dummy_db.get(epc)
+            # if db_data:
+            #     plat_db     = db_data["plat"]
+            #     golongan_db = db_data["golongan"]
+            # else:
+            #     plat_db     = "TIDAK DITEMUKAN"
+            #     golongan_db = "-"
 
-            status = "NO_CAMERA"  # status khusus: RFID terbaca tanpa verifikasi kamera
-
-            self.kirim_ke_esp(
-                epc, rssi, "N/A", plat_db, "-", golongan_db, status, timestamp,
-                r.get("t1", "N/A"),
-                r.get("delay_antar_tag", "N/A")
-            )
+            # status = "NO_CAMERA"  # status khusus: RFID terbaca tanpa verifikasi kamera
 
             # self.kirim_ke_esp(
-            #     epc, rssi,
-            #     "N/A", plat_db, "-", golongan_db, status, timestamp,
-            #     r.get("delay", "N/A")   # ← TAMBAH INI
+            #     epc, rssi, "N/A", plat_db, "-", golongan_db, status, timestamp,
+            #     r.get("t1", "N/A"),
+            #     r.get("delay_antar_tag", "N/A")
             # )
+
+            # # self.kirim_ke_esp(
+            # #     epc, rssi,
+            # #     "N/A", plat_db, "-", golongan_db, status, timestamp,
+            # #     r.get("delay", "N/A")   # ← TAMBAH INI
+            # # )
 
     def callback_rfid(self, msg):
         raw   = msg.data.strip()
@@ -218,7 +222,9 @@ class SubscriberNode(Node):
         self.tampilkan_rfid(epc, rssi)
 
         # JALUR 1: Langsung kirim EPC ke backend
-        self.kirim_ke_esp(f"RFID|{epc}|{rssi}|{t1}|{delay_antar_tag}")
+        # RFID — tanpa "DATA|" di depan, tanpa "|N/A" di belakang
+        rssi_bersih = rssi.replace(" dBm", "").strip()
+        self.kirim_ke_esp(f"RFID|{epc}|{rssi_bersih}|{t1}|{delay_antar_tag}")
 
         # Simpan ke buffer untuk coba match kamera (audit)
         self.rfid_buffer.append({
