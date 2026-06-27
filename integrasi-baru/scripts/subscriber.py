@@ -85,6 +85,12 @@ class SubscriberNode(Node):
         return True
 
     def tampilkan_rfid(self, epc, rssi, timestamp_rfid="N/A", delay="N/A"):
+
+        try:
+            t1_jam = datetime.fromtimestamp(float(t1)).strftime("%H:%M:%S.%f - %d/%m/%Y")[:-3]
+        except:
+            t1_jam = "N/A"
+
         sep = "-" * 55
         self.get_logger().info(sep)
         self.get_logger().info(f"[RFID] EPC       : {epc}")
@@ -219,7 +225,7 @@ class SubscriberNode(Node):
         if not self.cek_limit(epc):
             return
 
-        self.tampilkan_rfid(epc, rssi)
+        self.tampilkan_rfid(epc, rssi, t1, delay_antar_tag)
 
         # JALUR 1: Langsung kirim EPC ke backend
         # RFID — tanpa "DATA|" di depan, tanpa "|N/A" di belakang
