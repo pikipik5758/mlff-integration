@@ -371,16 +371,33 @@ def format_plat_indonesia(teks_raw):
 
 
 def baca_plat_crop(crop_bgr, ocr, debug_save_dir=None, debug_prefix=""):
-    """Fungsi OCR dari crop langsung — dipanggil oleh OCR worker thread."""
     if crop_bgr is None or crop_bgr.size == 0:
         return ""
+
+    t0 = time.time()
     kandidat_list = preprocess_plat(crop_bgr, debug_save_dir, debug_prefix)
+    t1 = time.time()
+
+    hasil_format = ""
     for kandidat in kandidat_list:
+        t2 = time.time()
         teks_list = ocr_kandidat(ocr, kandidat)
+        t3 = time.time()
+
         if teks_list:
+            t4 = time.time()
             hasil_format = format_plat_indonesia(teks_list)
+            t5 = time.time()
+
             if hasil_format:
+                print(f"[INFERENCE TIME]"
+                      f" preprocess={((t1-t0)*1000):.1f}ms"
+                      f" | ocr={((t3-t2)*1000):.1f}ms"
+                      f" | postprocess={((t5-t4)*1000):.1f}ms"
+                      f" | total={((t5-t0)*1000):.1f}ms"
+                      f" | hasil={hasil_format}")
                 return hasil_format
+
     return ""
 
 
@@ -512,6 +529,7 @@ class KameraNode(Node):
         # Ambil hasil OCR yang sudah selesai di background
         self._ambil_hasil_ocr()
 
+        t_det_start = time.time()
         results = self.model.track(
             source=frame,
             tracker="bytetrack.yaml",
@@ -519,6 +537,10 @@ class KameraNode(Node):
             iou=0.3,
             persist=True,
             verbose=False
+        )
+        t_det_end = time.time()
+        self.get_logger().info(
+            f"[DETECTION TIME] {((t_det_end - t_det_start) * 1000):.1f}ms"
         )
 
         if results is None or len(results) == 0:
