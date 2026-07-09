@@ -32,6 +32,9 @@ GOLONGAN_MAP = {
 DEBUG_PREPROCESSING = False
 DEBUG_DIR = "/home/piki/PA/integrasi-baru/scripts/debug_preprocessing"
 
+# Interval cetak ringkasan waktu inference (detik)
+TIMING_SUMMARY_INTERVAL = 1.0
+
 # ============================================================
 # PREPROCESSING UTILITIES
 # ============================================================
@@ -371,12 +374,21 @@ def format_plat_indonesia(teks_raw):
 
 
 def baca_plat_crop(crop_bgr, ocr, debug_save_dir=None, debug_prefix=""):
+    """
+    Jalankan pipeline baca plat lengkap.
+    Mengembalikan tuple (hasil_format, timing) dimana timing adalah dict
+    berisi durasi (ms) tiap tahap: preprocess, ocr, postprocess, total.
+    timing bernilai None kalau tidak ada kandidat yang berhasil dibaca.
+    """
+    timing = None
+
     if crop_bgr is None or crop_bgr.size == 0:
-        return ""
+        return "", timing
 
     t0 = time.time()
     kandidat_list = preprocess_plat(crop_bgr, debug_save_dir, debug_prefix)
     t1 = time.time()
+    preprocess_ms = (t1 - t0) * 1000
 
     hasil_format = ""
     for kandidat in kandidat_list:
@@ -390,15 +402,24 @@ def baca_plat_crop(crop_bgr, ocr, debug_save_dir=None, debug_prefix=""):
             t5 = time.time()
 
             if hasil_format:
-                print(f"[INFERENCE TIME]"
-                      f" preprocess={((t1-t0)*1000):.1f}ms"
-                      f" | ocr={((t3-t2)*1000):.1f}ms"
-                      f" | postprocess={((t5-t4)*1000):.1f}ms"
-                      f" | total={((t5-t0)*1000):.1f}ms"
+                ocr_ms = (t3 - t2) * 1000
+                postprocess_ms = (t5 - t4) * 1000
+                total_ms = (t5 - t0) * 1000
+                timing = {
+                    "preprocess_ms": preprocess_ms,
+                    "ocr_ms": ocr_ms,
+                    "postprocess_ms": postprocess_ms,
+                    "total_ms": total_ms,
+                }
+                print(f"[OCR TIME]"
+                      f" preprocess={preprocess_ms:.1f}ms"
+                      f" | ocr={ocr_ms:.1f}ms"
+                      f" | postprocess={postprocess_ms:.1f}ms"
+                      f" | total={total_ms:.1f}ms"
                       f" | hasil={hasil_format}")
-                return hasil_format
+                return hasil_format, timing
 
-    return ""
+    return "", timing
 
 
 def iou(boxA, boxB):
@@ -437,10 +458,27 @@ class KameraNode(Node):
         self.snapshot_ids = set()
         self.lock = threading.Lock()
 
+        # === TIMING / INFERENCE STATS ===
+        # 'detection' = waktu YOLO track() -> mencakup deteksi bbox SEKALIGUS
+        # klasifikasi kelas kendaraan/plat, karena YOLO adalah model
+        # single-stage (bbox & class dihasilkan dalam satu forward pass yang
+        # sama, jadi tidak bisa dipisah jadi dua angka yang berarti).
+        # 'ocr_*' = breakdown waktu OCR per tahap (berjalan di thread terpisah).
+        self.timing_stats = {
+            'detection_ms': [],
+            'klasifikasi_ms': [], 
+            'ocr_preprocess_ms': [],
+            'ocr_ms': [],
+            'ocr_postprocess_ms': [],
+            'ocr_total_ms': [],
+        }
+        self.stats_lock = threading.Lock()
+        self._last_stats_print = time.time()
+
         # === THREADING SETUP ===
-        # Queue input OCR: (crop_bgr, pbox, best_tid)
+        # Queue input OCR: (crop_bgr, best_tid)
         self.ocr_queue = queue.Queue(maxsize=2)
-        # Queue hasil OCR: (best_tid, teks)
+        # Queue hasil OCR: (best_tid, teks, timing)
         self.ocr_result_queue = queue.Queue()
         self._stop_event = threading.Event()
 
@@ -486,9 +524,9 @@ class KameraNode(Node):
             try:
                 debug_dir = DEBUG_DIR if DEBUG_PREPROCESSING else None
                 prefix = f"id{best_tid}_{datetime.now().strftime('%H%M%S_%f')}"
-                teks = baca_plat_crop(crop_bgr, self.ocr, debug_dir, prefix)
+                teks, timing = baca_plat_crop(crop_bgr, self.ocr, debug_dir, prefix)
                 if teks and best_tid is not None:
-                    self.ocr_result_queue.put((best_tid, teks))
+                    self.ocr_result_queue.put((best_tid, teks, timing))
             except Exception as e:
                 pass
             finally:
@@ -498,7 +536,7 @@ class KameraNode(Node):
         """Ambil semua hasil OCR yang sudah selesai dari result queue."""
         while not self.ocr_result_queue.empty():
             try:
-                best_tid, teks = self.ocr_result_queue.get_nowait()
+                best_tid, teks, timing = self.ocr_result_queue.get_nowait()
                 with self.lock:
                     if best_tid not in self.plat_counter:
                         self.plat_counter[best_tid] = {}
@@ -509,8 +547,56 @@ class KameraNode(Node):
                         key=self.plat_counter[best_tid].get
                     )
                     self.plat_memory[best_tid] = best_teks
+
+                if timing:
+                    with self.stats_lock:
+                        self.timing_stats['ocr_preprocess_ms'].append(timing['preprocess_ms'])
+                        self.timing_stats['ocr_ms'].append(timing['ocr_ms'])
+                        self.timing_stats['ocr_postprocess_ms'].append(timing['postprocess_ms'])
+                        self.timing_stats['ocr_total_ms'].append(timing['total_ms'])
             except queue.Empty:
                 break
+
+    def _print_timing_summary(self):
+        """
+        Cetak rata-rata waktu inference (deteksi+klasifikasi & OCR)
+        setiap TIMING_SUMMARY_INTERVAL detik, lalu reset buffer.
+        """
+        now = time.time()
+        if now - self._last_stats_print < TIMING_SUMMARY_INTERVAL:
+            return
+        self._last_stats_print = now
+
+        with self.stats_lock:
+            det = self.timing_stats['detection_ms']
+            cls_t = self.timing_stats['klasifikasi_ms'] 
+            pre = self.timing_stats['ocr_preprocess_ms']
+            ocr = self.timing_stats['ocr_ms']
+            post = self.timing_stats['ocr_postprocess_ms']
+            total = self.timing_stats['ocr_total_ms']
+
+            det_avg = sum(det) / len(det) if det else 0.0
+            cls_avg = sum(cls_t) / len(cls_t) if cls_t else 0.0 
+            pre_avg = sum(pre) / len(pre) if pre else 0.0
+            ocr_avg = sum(ocr) / len(ocr) if ocr else 0.0
+            post_avg = sum(post) / len(post) if post else 0.0
+            total_avg = sum(total) / len(total) if total else 0.0
+            n_det = len(det)
+            n_ocr = len(total)
+
+            # Reset buffer supaya rata-rata dihitung per interval, bukan kumulatif
+            for k in self.timing_stats:
+                self.timing_stats[k] = []
+
+        self.get_logger().info(
+            f"[RINGKASAN INFERENCE] "
+            f"Deteksi+Klasifikasi(YOLO) avg={det_avg:.1f}ms (n={n_det}) | "
+            f"Klasifikasi golongan avg={cls_avg:.1f}ms | " 
+            f"OCR preprocess avg={pre_avg:.1f}ms | "
+            f"OCR infer avg={ocr_avg:.1f}ms | "
+            f"OCR postprocess avg={post_avg:.1f}ms | "
+            f"OCR total avg={total_avg:.1f}ms (n={n_ocr})"
+        )
 
     def process_frame(self):
         ret, frame = self.cap.read()
@@ -529,6 +615,7 @@ class KameraNode(Node):
         # Ambil hasil OCR yang sudah selesai di background
         self._ambil_hasil_ocr()
 
+        # === DETEKSI + KLASIFIKASI (satu forward pass YOLO) ===
         t_det_start = time.time()
         results = self.model.track(
             source=frame,
@@ -539,9 +626,13 @@ class KameraNode(Node):
             verbose=False
         )
         t_det_end = time.time()
-        self.get_logger().info(
-            f"[DETECTION TIME] {((t_det_end - t_det_start) * 1000):.1f}ms"
-        )
+        det_ms = (t_det_end - t_det_start) * 1000
+        with self.stats_lock:
+            self.timing_stats['detection_ms'].append(det_ms)
+        self.get_logger().info(f"[DETEKSI+KLASIFIKASI TIME] {det_ms:.1f}ms")
+
+        # Cetak ringkasan rata-rata tiap ~1 detik
+        self._print_timing_summary()
 
         if results is None or len(results) == 0:
             cv2.putText(frame, f"FPS: {self.fps:.1f}", (10, 30),
@@ -557,16 +648,22 @@ class KameraNode(Node):
         kendaraan_list = []
         plat_list = []
 
+        t_cls_start = time.time()                              # ← TAMBAHKAN baris ini
         for i, cls in enumerate(boxes.cls.int().cpu().numpy()):
             box = boxes.xyxy[i].cpu().numpy()
-            conf = float(boxes.conf[i])  # ← ambil confidence score
+            conf = float(boxes.conf[i])
             if cls in VEHICLE_CLASSES:
                 tid = int(boxes.id[i]) if boxes.id is not None else -1
-                kendaraan_list.append((tid, int(cls), box, conf))  # ← tambah conf
+                kendaraan_list.append((tid, int(cls), box, conf))
                 with self.lock:
                     self.golongan_memory[tid] = GOLONGAN_MAP.get(int(cls), 2)
             elif cls == PLATE_CLASS:
                 plat_list.append(box)
+        t_cls_end = time.time()                                 # ← TAMBAHKAN baris ini
+        cls_ms = (t_cls_end - t_cls_start) * 1000               # ← TAMBAHKAN baris ini
+        with self.stats_lock:                                   # ← TAMBAHKAN baris ini
+            self.timing_stats['klasifikasi_ms'].append(cls_ms)  # ← TAMBAHKAN baris ini
+        self.get_logger().info(f"[KLASIFIKASI GOLONGAN TIME] {cls_ms:.1f}ms")  # ← TAMBAHKAN baris ini
 
         # Kirim crop plat ke OCR thread (non-blocking)
         for pbox in plat_list:
