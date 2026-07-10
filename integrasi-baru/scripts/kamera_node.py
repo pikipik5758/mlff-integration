@@ -22,6 +22,8 @@ SAVE_DIR = "/home/piki/PA/integrasi-baru/scripts/hasil"
 VEHICLE_CLASSES = {0, 1, 2, 3, 4}
 PLATE_CLASS = 5
 
+MIN_VOTE_PUBLISH = 3  # minimal terbaca 3x konsisten baru publish
+
 GOLONGAN_MAP = {
     0: 1,
     1: 2,
@@ -708,6 +710,14 @@ class KameraNode(Node):
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
             if plat:
+                # Cek jumlah vote untuk plat ini
+                with self.lock:
+                    vote_count = self.plat_counter.get(tid, {}).get(plat, 0)
+
+                if vote_count < MIN_VOTE_PUBLISH:
+                    # Belum cukup konsisten, skip publish
+                    continue  # ← tidak publish dulu
+
                 data = {
                     "track_id": tid,
                     "plat": plat,
