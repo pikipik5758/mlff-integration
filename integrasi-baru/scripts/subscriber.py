@@ -7,16 +7,16 @@ import time
 from datetime import datetime
 
 # === KONFIGURASI ===
-TIME_TOLERANCE = 0.5  # toleransi waktu (detik) untuk mencocokkan data RFID dan kamera
+TIME_TOLERANCE = 3.0  # toleransi waktu (detik) untuk mencocokkan data RFID dan kamera
 MAX_DETEKSI    = 3
 COOLDOWN_LOCK  = 10
-TIMEOUT_KAMERA = 1.0   # waktu maksimum menunggu data kamera sebelum dianggap timeout
+TIMEOUT_KAMERA = 4.0   # waktu maksimum menunggu data kamera sebelum dianggap timeout
 
 # === DUMMY DATABASE ===
 dummy_db = {
     #"E28069150000700B41525446": {"plat": "L 1829 ABO", "golongan": 1},
     #"E28069150000600B41554045": {"plat": "W 1940 VI",  "golongan": 4},
-    "E28069150000600B41524446": {"plat": "L 1829 ABO",  "golongan": 1},
+    #"E28069150000600B41524446": {"plat": "L 1829 ABO",  "golongan": 1},
     # "E28011700000021B041818C4": {"plat": "L 9838 UP",  "golongan": 1},
 }
 
