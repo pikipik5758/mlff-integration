@@ -103,20 +103,19 @@ class SubscriberNode(Node):
     def coba_cocokkan(self):
         matched_rfid   = None
         matched_kamera = None
+        selisih_terkecil = float('inf')
 
         for r in self.rfid_buffer:
             for k in self.kamera_buffer:
-                if abs(r["timestamp"] - k["timestamp_ros"]) <= TIME_TOLERANCE:
-                    matched_rfid   = r
-                    matched_kamera = k
-                    break
-            if matched_rfid:
-                break
+                selisih = abs(r["timestamp"] - k["timestamp_ros"])
+                if selisih <= TIME_TOLERANCE and selisih < selisih_terkecil:
+                    selisih_terkecil = selisih
+                    matched_rfid     = r
+                    matched_kamera   = k
 
         if not matched_rfid or not matched_kamera:
             return
 
-        self.rfid_buffer.remove(matched_rfid)
         self.kamera_buffer.remove(matched_kamera)
         self.verifikasi(matched_rfid, matched_kamera)
     
@@ -184,35 +183,6 @@ class SubscriberNode(Node):
                 f"[TIMEOUT] EPC {r['epc']} — "
                 f"kamera tidak datang dalam {TIMEOUT_KAMERA}s, dibatalkan."
             )
-            # Tidak perlu kirim apa-apa di sini
-            # RFID sudah dikirim langsung di callback_rfid
-
-            # # ↓ KIRIM TETAP MESKIPUN TIDAK ADA KAMERA
-            # epc       = r["epc"]
-            # rssi      = r.get("rssi", "N/A")
-            # timestamp = datetime.now().strftime("%H:%M:%S %d/%m/%Y")
-
-            # db_data = dummy_db.get(epc)
-            # if db_data:
-            #     plat_db     = db_data["plat"]
-            #     golongan_db = db_data["golongan"]
-            # else:
-            #     plat_db     = "TIDAK DITEMUKAN"
-            #     golongan_db = "-"
-
-            # status = "NO_CAMERA"  # status khusus: RFID terbaca tanpa verifikasi kamera
-
-            # self.kirim_ke_esp(
-            #     epc, rssi, "N/A", plat_db, "-", golongan_db, status, timestamp,
-            #     r.get("t1", "N/A"),
-            #     r.get("delay_antar_tag", "N/A")
-            # )
-
-            # # self.kirim_ke_esp(
-            # #     epc, rssi,
-            # #     "N/A", plat_db, "-", golongan_db, status, timestamp,
-            # #     r.get("delay", "N/A")   # ← TAMBAH INI
-            # # )
 
     def callback_rfid(self, msg):
         raw   = msg.data.strip()
